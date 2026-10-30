@@ -1,0 +1,47 @@
+import numpy as np
+
+rng = np.random.default_rng()
+marks = rng.integers(0, 101, size=(4, 5))
+
+total_marks = np.sum(marks, axis=1)
+percentage = (total_marks / 500) * 100
+
+average_marks = np.mean(marks, axis=0)
+std_deviation = np.std(marks, axis=0)
+
+print("DAY 1 - ASSIGNMENT 1")
+
+print("\nMarks Matrix:")
+print(marks)
+
+print("\nTotal Marks of Each Student:")
+print(total_marks)
+
+print("\nPercentage of Each Student:")
+print(percentage)
+
+print("\nAverage Marks in Each Subject:")
+print(average_marks)
+
+print("\nStandard Deviation in Each Subject:")
+print(std_deviation)
+
+highest_marks = np.max(marks, axis=0)
+student_index = np.argmax(marks, axis=0)
+
+print("\nHighest Marks in Each Subject:")
+print(highest_marks)
+
+print("\nStudent Index Scoring Highest Marks:")
+print(student_index)
+
+print("\nStudent Number:")
+print(student_index + 1)
+
+pass_mask = marks >= 40
+
+print("\nBoolean Mask (True = Pass, False = Fail):")
+print(pass_mask)
+
+print("\nPass/Fail Status:")
+print(np.where(pass_mask, "Pass", "Fail"))
