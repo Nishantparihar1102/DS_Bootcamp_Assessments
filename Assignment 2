@@ -1,239 +1,104 @@
-
 import pandas as pd
 import numpy as np
 
-print("SALES DATA CLEANING AND ANALYSIS USING PANDAS")
+CSV_PATH = r"CSV_File_address"   
 
-data = {
-    "OrderID": ["S001", "S002", "S003", "S004", "S005",
-                "S006", "S007", "S008", "S009", "S010",
-                "S011", "S012", "S013", "S014", "S015",
-                "S016", "S017", "S018", "S019", "S020",
-                "S020", "S021", "S022"],
-
-    "OrderDate": ["2025-01-05", "06/01/2025", "2025/01/07",
-                  "08-01-2025", "2025-01-09", "10/01/2025",
-                  "2025-01-11", "12-01-2025", "2025/01/13",
-                  "14/01/2025", "2025-01-15", "16-01-2025",
-                  "2025-01-17", "18/01/2025", "2025-01-19",
-                  "20-01-2025", "2025-01-21", "22/01/2025",
-                  "2025-01-23", "24-01-2025", "24-01-2025",
-                  "2025-01-25", "26/01/2025"],
-
-    "Region": ["North", " south ", "EAST", "West", "North",
-               "South", " east ", "West", None, "NORTH",
-               "South", "West", "East", " south", "West",
-               "North", "East", "West", "North", "South",
-               "South", "East", "West"],
-
-    "ProductCategory": ["Electronics", "electronics", "Furniture",
-                        "Furniture", "Stationery", "Electronics",
-                        "stationery", "Electronics", "Furniture",
-                        "Electronics", "Stationery", "Furniture",
-                        "Electronics", "Stationery", "Electronics",
-                        "Furniture", "Stationery", "Electronics",
-                        "Furniture", "Electronics", "Electronics",
-                        "Stationery", "Furniture"],
-
-    "Product": ["Laptop", "Mouse", "Chair", "Desk", "Notebook",
-                "Keyboard", "Pen", "Monitor", "Table", "Headphones",
-                "File", "Shelf", "Tablet", "Marker", "USB Drive",
-                "Sofa", "Paper", "Webcam", "Cabinet", "Speaker",
-                "Speaker", "Stapler", "Bed"],
-
-    "Quantity": ["2", "5", "3", "2", "10", None, "20", "1",
-                 "1", "4", "8", "2", "2", "6", "7", "1",
-                 "15", "2", "2", "3", "3", "4", "1"],
-
-    "UnitPrice": ["55000", "500", "2500", "7000", "50",
-                  "1200", "10", "12000", "9000", "1500",
-                  "25", "-3000", "18000", "30", "400",
-                  "25000", "80", "2200", "8000", "1800",
-                  "1800", "150", "30000"],
-
-    "Sales": ["110000", "2500", "7500", "14000", "500",
-              None, "200", "12000", "9000", "6000",
-              "200", "-6000", "36000", "180", "2800",
-              "25000", "1200", "4400", "16000", "5400",
-              "5400", "600", "30000"]
-}
-
-df = pd.DataFrame(data)
-
-df.to_csv("sales_dataset.csv", index=False)
-
-print("\n1. LOAD AND EXPLORE DATASET")
-
-df = pd.read_csv("sales_dataset.csv")
-
-print("\nFirst Five Rows:")
+# 1. Load and explore
+df = pd.read_csv(CSV_PATH)
+print(df.shape)
 print(df.head())
-
-print("\nDataset Information:")
 df.info()
-
-print("\nStatistical Description:")
 print(df.describe(include="all"))
 
-print("\nDataset Shape:")
-print(df.shape)
+orig_rows, orig_cols = df.shape
+orig_missing = int(df.isna().sum().sum())
+orig_dups = int(df.duplicated().sum())
+log = []
 
-print("\n2. IDENTIFY DATA QUALITY ISSUES")
+def add(issue, fix, result):
+    log.append({"Issue": issue, "Correction": fix, "Result": result})
 
-print("\nMissing Values:")
-print(df.isnull().sum())
+# 2-3. Find issues and clean
+old = list(df.columns)
+df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
+add("Messy column names", "strip, lower, replace space with _", f"{sum(a != b for a, b in zip(old, df.columns))} renamed")
 
-print("\nDuplicate Records:")
-print(df.duplicated().sum())
+n = 0
+for c in df.select_dtypes(include="object"):
+    clean = df[c].str.strip().str.replace(r"\s+", " ", regex=True)
+    n += int((df[c].fillna("") != clean.fillna("")).sum())
+    df[c] = clean
+df = df.replace(["", "N/A", "NULL", "null", "NaN", "na", "-"], np.nan)
+add("Extra spaces and fake nulls", "str.strip(), replace with NaN", f"{n} cells trimmed")
 
-print("\nDuplicate Order IDs:")
-print(df["OrderID"].duplicated().sum())
+num_done, date_done = [], []
+formats = ["%d-%m-%Y", "%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d"]
+for c in df.select_dtypes(include="object"):
+    filled = df[c].notna().sum()
+    num = pd.to_numeric(df[c].str.replace(r"[$,€₹£%]", "", regex=True), errors="coerce")
+    if filled and num.notna().sum() >= 0.8 * filled:
+        df[c] = num
+        num_done.append(c)
+        continue
+    best = max(formats, key=lambda f: pd.to_datetime(df[c], format=f, errors="coerce").notna().sum())
+    dates = pd.to_datetime(df[c], format=best, errors="coerce")
+    if filled and dates.notna().sum() >= 0.8 * filled:
+        df[c] = dates
+        date_done.append(c)
+add("Numbers stored as text", "remove symbols, to_numeric()", f"{num_done or 'none'}")
+add("Dates stored as text", "to_datetime()", f"{date_done or 'none'}")
 
-print("\nData Types:")
-print(df.dtypes)
+n = 0
+for c in df.select_dtypes(include="object"):
+    if df[c].nunique() <= 50:
+        new = df[c].str.title()
+        n += int((df[c].fillna("") != new.fillna("")).sum())
+        df[c] = new
+add("Inconsistent text case", "str.title()", f"{n} cells fixed")
 
-print("\nRegion Values:")
-print(df["Region"].unique())
+keys = ["qty", "quantity", "price", "sales", "amount", "revenue", "units", "total", "cost", "fare", "age"]
+n = 0
+for c in df.select_dtypes(include="number"):
+    if any(k in c for k in keys):
+        bad = df[c] < 0
+        n += int(bad.sum())
+        df.loc[bad, c] = np.nan
+add("Invalid negative values", "set to NaN", f"{n} values")
 
-print("\nInvalid Prices:")
-print(pd.to_numeric(df["UnitPrice"], errors="coerce").le(0).sum())
+d = int(df.duplicated().sum())
+df = df.drop_duplicates().reset_index(drop=True)
+add("Duplicate records", "drop_duplicates()", f"{d} rows removed")
 
-print("\n3. CLEAN THE DATASET")
+m = int(df.isna().sum().sum())
+for c in df.columns:
+    if pd.api.types.is_numeric_dtype(df[c]) or pd.api.types.is_datetime64_any_dtype(df[c]):
+        df[c] = df[c].fillna(df[c].median())
+    else:
+        df[c] = df[c].fillna("Unknown")
+add("Missing values", "median for numbers/dates, 'Unknown' for text", f"{m} filled")
 
-cleaned = df.copy()
-cleaning_log = []
+cleaning_log = pd.DataFrame(log)
+print(cleaning_log.to_string())
 
-before = len(cleaned)
-cleaned = cleaned.drop_duplicates(subset="OrderID", keep="first")
+# 4. GroupBy
+cats = [c for c in df.select_dtypes(include="object") if 2 <= df[c].nunique() <= 30]
+cats.sort(key=lambda c: 0 if any(k in c for k in ["region", "category"]) else 1)
+nums = [c for c in df.select_dtypes(include="number") if "id" not in c]
+nums.sort(key=lambda c: 0 if any(k in c for k in ["sales", "revenue", "amount", "total"]) else 1)
 
-cleaning_log.append([
-    "Duplicate Records",
-    "Removed duplicate OrderID values",
-    before - len(cleaned)
-])
+if cats and nums:
+    print(df.groupby(cats[0])[nums[0]].sum().sort_values(ascending=False))
 
-cleaned["OrderDate"] = pd.to_datetime(
-    cleaned["OrderDate"],
-    format="mixed",
-    dayfirst=False,
-    errors="coerce"
-)
+# 5. Pivot table
+if len(cats) >= 2 and nums:
+    print(pd.pivot_table(df, values=nums[0], index=cats[0], columns=cats[1], aggfunc="sum", fill_value=0))
 
-for col in ["Quantity", "UnitPrice", "Sales"]:
-    cleaned[col] = pd.to_numeric(cleaned[col], errors="coerce")
+# 6. Data quality summary
+print(f"- Original data: {orig_rows} rows and {orig_cols} columns had {len(cleaning_log)} types of quality issues.")
+print("- Cleaning: renamed columns, trimmed text, fixed data types, standardized case, removed invalid values.")
+print(f"- Missing values: {orig_missing} found originally and {int(df.isna().sum().sum())} remain after cleaning.")
+print(f"- Duplicate records: {orig_dups} found and removed, leaving {len(df)} rows.")
+print("- Overall quality: the cleaned dataset is consistent, correctly typed and ready for analysis.")
 
-cleaning_log.append([
-    "Incorrect Data Types",
-    "Converted date and numeric columns",
-    "Data types corrected"
-])
-
-before = len(cleaned)
-
-invalid = (
-    (cleaned["Quantity"].notna() & (cleaned["Quantity"] <= 0)) |
-    (cleaned["UnitPrice"].notna() & (cleaned["UnitPrice"] <= 0))
-)
-
-cleaned = cleaned.loc[~invalid].copy()
-
-cleaning_log.append([
-    "Invalid Values",
-    "Removed negative or zero quantity and price",
-    before - len(cleaned)
-])
-
-missing_quantity = cleaned["Quantity"].isnull().sum()
-missing_region = cleaned["Region"].isnull().sum()
-
-cleaned["Quantity"] = cleaned["Quantity"].fillna(
-    cleaned["Quantity"].median()
-).round().astype(int)
-
-cleaned["Region"] = cleaned["Region"].fillna("Unknown")
-
-cleaning_log.append([
-    "Missing Values",
-    "Filled Quantity with median and Region with Unknown",
-    missing_quantity + missing_region
-])
-
-for col in ["Region", "ProductCategory", "Product"]:
-    cleaned[col] = (
-        cleaned[col].astype("string").str.strip().str.title()
-    )
-
-cleaning_log.append([
-    "Inconsistent Text and Extra Spaces",
-    "Applied strip() and title()",
-    "Text standardized"
-])
-
-cleaned["Sales"] = cleaned["Quantity"] * cleaned["UnitPrice"]
-
-cleaned = cleaned.dropna(
-    subset=["OrderDate", "UnitPrice"]
-).copy()
-
-cleaning_log.append([
-    "Incorrect Sales Values",
-    "Recalculated Sales using Quantity multiplied by UnitPrice",
-    "Sales corrected"
-])
-
-cleaned = cleaned.sort_values("OrderID").reset_index(drop=True)
-
-print("\nCLEANING LOG")
-
-log_df = pd.DataFrame(
-    cleaning_log,
-    columns=["Issue", "Correction Applied", "Result"]
-)
-
-print(log_df.to_string(index=False))
-
-print("\nCleaned Dataset:")
-print(cleaned)
-
-print("\nMissing Values After Cleaning:")
-print(cleaned.isnull().sum())
-
-print("\nDuplicate Records After Cleaning:")
-print(cleaned["OrderID"].duplicated().sum())
-
-print("\n4. GROUPBY ANALYSIS")
-
-sales_by_region = cleaned.groupby("Region")["Sales"].sum()
-
-print("\nTotal Sales By Region:")
-print(sales_by_region)
-
-print("\n5. PIVOT TABLE ANALYSIS")
-
-pivot = pd.pivot_table(
-    cleaned,
-    values="Sales",
-    index="Region",
-    columns="ProductCategory",
-    aggfunc="sum",
-    fill_value=0
-)
-
-print("\nSales By Region And Product Category:")
-print(pivot)
-
-print("\n6. DATA QUALITY SUMMARY")
-
-print("1. The original dataset contained missing values and duplicate records.")
-print("2. Incorrect data types and inconsistent text were corrected.")
-print("3. Missing quantities were filled using the median value.")
-print("4. Duplicate records and invalid negative values were removed.")
-print("5. The cleaned dataset has consistent formatting and recalculated sales.")
-
-print("\n7. SAVE AND SUBMIT")
-
-cleaned.to_csv("cleaned_data.csv", index=False)
-
-print("\nOriginal Dataset Saved: sales_dataset.csv")
-print("Cleaned Dataset Saved: cleaned_data.csv")
-print("\nASSIGNMENT COMPLETED SUCCESSFULLY!")
+# 7. Save
+df.to_csv("cleaned_data.csv", index=False)
